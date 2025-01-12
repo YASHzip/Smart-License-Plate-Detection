@@ -52,8 +52,18 @@ def convert_image_and_annotation(image_path, xml_path, label_path):
         for line in yolo_format:
             f.write(line + '\n')
 
-# Example usage:
-image_folder = "E:\\License Plate Number Detection\\archive\\images\\validation"  # Path to your images folder
-annotation_folder = "E:\\License Plate Number Detection\\archive\\annotations\\validation"  # Path to your XML folder
-label_folder = "E:\\License Plate Number Detection\\archive\\label\\validation"  # Path where YOLO annotation files will be saved
+
+image_folder = "E:\\License Plate Number Detection\\archive\\images\\test"  # Path to your images folder
+annotation_folder = "E:\\License Plate Number Detection\\archive\\annotations\\test"  # Path to your XML folder
+label_folder = "E:\\License Plate Number Detection\\archive\\label\\test"  # Path where YOLO annotation files will be saved
+convert_xml_to_yolo(image_folder, annotation_folder, label_folder)
+
+image_folder = "E:\\License Plate Number Detection\\archive\\images\\train" 
+annotation_folder = "E:\\License Plate Number Detection\\archive\\annotations\\train"  
+label_folder = "E:\\License Plate Number Detection\\archive\\label\\train" 
+convert_xml_to_yolo(image_folder, annotation_folder, label_folder)
+
+image_folder = "E:\\License Plate Number Detection\\archive\\images\\validation"  
+annotation_folder = "E:\\License Plate Number Detection\\archive\\annotations\\validation" 
+label_folder = "E:\\License Plate Number Detection\\archive\\label\\validation" 
 convert_xml_to_yolo(image_folder, annotation_folder, label_folder)
