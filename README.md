@@ -22,8 +22,23 @@ This solution can be used in various applications including:
 ---
 
 ## 🔧 **Installation Guide**
+To run this project, you'll need the following dependencies:
+
+- TensorFlow
+- torch
+- torchvision
+- numpy
+- opencv-python
+- matplotlib
+
+You can install the required dependencies using pip:
+
+```bash
+pip install -r requirements.txt
+```
 
 ### **1. Clone the Repository**
 ```bash
 git clone https://github.com/YASHzip/SmartLicensePlateDetection.git
 cd SmartLicensePlateDetection
+```
