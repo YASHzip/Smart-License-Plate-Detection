@@ -51,7 +51,7 @@ cd yolov5
 pip install -U -r requirements.txt
 ```
 
-### **3.Prepare the Dataset**
+### **3. Prepare the Dataset**
 Organize your dataset in following order:
 ```bash
 archive/
@@ -64,4 +64,8 @@ archive/
 │   ├── train/
 │   └── validation/
 ```
+### **4. Convert XML files to txt**
+You'll have to covert the XML file present in the annotations directory to .txt and save them in labels directory inside the archive directory for the YOLOv5 model to train them.
+To do so open and run the xmltotxtconvert.py file and change the path of the directories according to your device.
 
+### **5. Training the model**
