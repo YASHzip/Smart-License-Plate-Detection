@@ -30,6 +30,8 @@ To run this project, you'll need the following dependencies:
 - numpy
 - opencv-python
 - matplotlib
+- pytesseract
+- Pillow
 
 You can install the required dependencies using pip:
 ```bash
