@@ -32,12 +32,16 @@ To run this project, you'll need the following dependencies:
 - matplotlib
 
 You can install the required dependencies using pip:
-
 ```bash
 pip install -r requirements.txt
 ```
+### **1. YOLOv5 installation**
+```bash
+git clone https://github.com/ultralytics/yolov5.git
+cd yolov5
+```
 
-### **1. Clone the Repository**
+### **2. Clone the Repository**
 ```bash
 git clone https://github.com/YASHzip/SmartLicensePlateDetection.git
 cd SmartLicensePlateDetection
