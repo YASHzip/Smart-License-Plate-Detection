@@ -69,3 +69,4 @@ You'll have to covert the XML file present in the annotations directory to .txt 
 To do so open and run the xmltotxtconvert.py file and change the path of the directories according to your device.
 
 ### **5. Training the model**
+IN PROGRESS...
