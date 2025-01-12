@@ -1,0 +1,11 @@
+# YOLOv5 and general ML dependencies
+torch
+torchvision
+tensorflow
+numpy
+opencv-python
+matplotlib
+
+# OCR dependencies
+pytesseract
+Pillow
