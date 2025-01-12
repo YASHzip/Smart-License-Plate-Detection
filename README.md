@@ -69,4 +69,9 @@ You'll have to covert the XML file present in the annotations directory to .txt 
 To do so open and run the xmltotxtconvert.py file and change the path of the directories according to your device.
 
 ### **5. Training the model**
+To train your YOLOv5 model with your custom dataset you need to run the following command by opening the terminal in your yolov5 directory:
+```bash
+python train.py --img 416 --batch 4 --epochs 100 --data data.yaml --weights yolov5s.pt --device 0
+```
+### **6. 🧪 Testing and Evaluation**
 IN PROGRESS...
