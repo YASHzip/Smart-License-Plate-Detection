@@ -39,7 +39,7 @@ echo [STEP 3] Running standalone OCR on a plate crop...
 echo --------------------------------------------------------------
 echo   Input : plate_crop_test.jpg (auto-cropped plate region)
 echo.
-python ocr_pipeline.py --image plate_crop_test.jpg
+python ocr_pipeline.py --image crop_255.jpg
 echo.
 echo [OK] OCR test complete.
 echo.
@@ -54,7 +54,7 @@ echo   Input  : archive/images/test/Cars251.png
 echo   Output : detection_output\Cars251_detected.jpg
 echo   DB     : plates.db
 echo.
-python detect_and_recognize.py --source archive/images/test/Cars251.png
+python detect_and_recognize.py --source archive/images/test/Cars255.png
 echo.
 echo [OK] Full pipeline complete.
 echo.

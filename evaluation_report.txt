@@ -1,7 +1,7 @@
 ============================================================
   SMART LICENSE PLATE DETECTION — EVALUATION REPORT
 ============================================================
-  Generated : 2026-04-22 00:16:46
+  Generated : 2026-04-22 00:47:29
   Model     : YOLOv5s (custom fine-tuned)
   Weights   : runs/train/exp2/weights/best.pt
   Dataset   : Kaggle Car Plate Detection
