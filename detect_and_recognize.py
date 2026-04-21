@@ -251,33 +251,40 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
         fourcc   = cv2.VideoWriter_fourcc(*"mp4v")
         writer   = cv2.VideoWriter(str(out_path), fourcc, fps_in, (w_in, h_in))
 
-    print(f"\n[INFO] Starting {source_type} stream …  Press Q to quit.\n")
+    print(f"\n[INFO] Starting {source_type} stream ...  Press Q to quit.\n")
     frame_idx   = 0
     total_saved = 0
     fps_display = 0.0
     t0 = time.time()
+
+    # Best-frame tracker — saves clearest frame per plate at session end
+    tracker = BestFrameTracker()
 
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 if source_type == "webcam":
-                    print("[WARNING] Empty frame from webcam, retrying …")
+                    print("[WARNING] Empty frame from webcam, retrying ...")
                     time.sleep(0.05)
                     continue
                 break   # end of video
 
             frame_idx += 1
 
-            # Run detection every frame (or every N frames for speed)
+            # Run detection + OCR on this frame
+            # NOTE: skip DB saving here; we only save the BEST frame at the end
             annotated, plates = process_frame(
-                frame, model, ocr_func, db_save_func,
+                frame, model, ocr_func, None,
                 f"{source_type}_frame_{frame_idx}", args
             )
             total_saved += len([p for p in plates if p["plate"]])
 
+            # Feed into best-frame tracker
+            tracker.update(frame, annotated, plates)
+
             # FPS calculation
-            elapsed    = time.time() - t0
+            elapsed     = time.time() - t0
             fps_display = frame_idx / elapsed if elapsed > 0 else 0
 
             # OSD
@@ -296,7 +303,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
                 cv2.imshow("Smart License Plate Detection  |  Q to quit", annotated)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q") or key == 27:   # Q or ESC
-                    print("\n[INFO] Quitting …")
+                    print("\n[INFO] Quitting ...")
                     break
 
     except KeyboardInterrupt:
@@ -308,8 +315,101 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
             print(f"[INFO] Video saved: {out_path}")
         cv2.destroyAllWindows()
 
+    # Save the best frame for each unique plate + write final DB records
+    if not args.no_save:
+        tracker.save_best_frames(
+            output_dir=OUTPUT_DIR,
+            db_save_func=db_save_func if not args.no_db else None,
+            db_path=args.db,
+            source_label=source_type,
+        )
 
-# ─── Console helpers ──────────────────────────────────────────────────────────
+
+# --- Best Frame Tracker -------------------------------------------------------
+class BestFrameTracker:
+    """
+    Tracks the single best (clearest) frame per unique plate number.
+
+    Scoring formula:
+        score = det_conf x ocr_conf x (plate_area / frame_area)
+
+    The frame with the highest score is kept in memory and saved at the
+    end of the session.
+    """
+
+    def __init__(self):
+        # plate_text -> {score, frame, annotated, plate_data}
+        self._best: dict = {}
+
+    def update(self, frame_bgr: np.ndarray, annotated: np.ndarray,
+               plates: list):
+        """Call once per frame with the list of detected plates."""
+        if not plates:
+            return
+        frame_area = frame_bgr.shape[0] * frame_bgr.shape[1] or 1
+        for p in plates:
+            text = p.get("plate", "").strip()
+            if not text:
+                continue
+            x1, y1, x2, y2 = p["bbox"]
+            plate_area = max((x2 - x1) * (y2 - y1), 1)
+            # Use a small fallback OCR weight even if confidence is 0
+            ocr_w = p["ocr_conf"] if p["ocr_conf"] > 0 else 0.05
+            score = p["det_conf"] * ocr_w * (plate_area / frame_area)
+
+            if text not in self._best or score > self._best[text]["score"]:
+                self._best[text] = {
+                    "score":     score,
+                    "frame":     frame_bgr.copy(),
+                    "annotated": annotated.copy(),
+                    "plate":     p,
+                }
+
+    def save_best_frames(self, output_dir: Path, db_save_func, db_path: str,
+                         source_label: str = "webcam"):
+        """Save the best frame for each tracked plate and write to DB."""
+        if not self._best:
+            print("[BestFrame] No plates tracked — nothing to save.")
+            return
+
+        best_dir = output_dir / "best_frames"
+        best_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n[BestFrame] Saving {len(self._best)} best frame(s) to: {best_dir}")
+        print(f"  {'-'*60}")
+        print(f"  {'Plate':<15} {'Score':>8}  {'Det':>6}  {'OCR':>6}  Saved as")
+        print(f"  {'-'*60}")
+
+        for text, entry in self._best.items():
+            p = entry["plate"]
+            safe_name = text.replace("/", "-").replace("\\", "-")
+            filename  = f"{safe_name}_best.jpg"
+            out_path  = best_dir / filename
+            cv2.imwrite(str(out_path), entry["annotated"])
+
+            print(f"  {text:<15} {entry['score']:>8.4f}  "
+                  f"{p['det_conf']:>5.0%}  {p['ocr_conf']:>5.0%}  {filename}")
+
+            # Save best reading to DB
+            if db_save_func:
+                try:
+                    db_save_func(
+                        plate_number=text,
+                        raw_ocr_text=p.get("plate", text),
+                        image_path=str(out_path),
+                        detection_confidence=p["det_conf"],
+                        ocr_confidence=p["ocr_conf"],
+                        source=source_label,
+                        db_path=db_path,
+                    )
+                except Exception as e:
+                    print(f"  [WARNING] DB save failed for {text}: {e}")
+
+        print(f"  {'-'*60}")
+        print(f"[BestFrame] Done. Check: {best_dir}\n")
+
+
+# --- Console helpers ----------------------------------------------------------
 def _print_plates(plates: list):
     if not plates:
         print("  No license plates detected.")
