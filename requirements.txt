@@ -1,0 +1,21 @@
+# Smart License Plate Detection — Requirements
+# Install with: pip install -r requirements.txt
+
+# ── Core ML ───────────────────────────────────────────────────────────────────
+torch>=1.9.0
+torchvision>=0.10.0
+
+# ── Computer Vision ───────────────────────────────────────────────────────────
+opencv-python>=4.5.0
+Pillow>=8.0.0
+
+# ── OCR ───────────────────────────────────────────────────────────────────────
+easyocr>=1.6.0
+
+# ── Data & Utilities ──────────────────────────────────────────────────────────
+numpy>=1.21.0
+matplotlib>=3.4.0
+
+# ── YOLOv5 Dependencies ───────────────────────────────────────────────────────
+# (install separately inside yolov5/ folder using its own requirements.txt)
+# cd yolov5 && pip install -U -r requirements.txt

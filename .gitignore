@@ -1,0 +1,70 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.so
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+.env
+.venv
+env/
+venv/
+ENV/
+
+# ─── Dataset (large files — do not commit) ────────────────────────────────────
+archive/
+*.zip
+*.tar.gz
+*.tar
+
+# ─── Model weights (large binary files) ──────────────────────────────────────
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+yolov5/runs/
+yolov5/*.pt
+
+# ─── Database (contains sensitive plate data) ─────────────────────────────────
+plates.db
+
+# ─── Output directories ───────────────────────────────────────────────────────
+output_test_results*/
+detection_output/
+evaluation_output/
+
+# ─── Temp / IDE ───────────────────────────────────────────────────────────────
+tempCodeRunnerFile.py
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+wandb/
+
+# ─── YOLOv5 internals (already tracked via submodule or separate repo) ────────
+yolov5/.git/
