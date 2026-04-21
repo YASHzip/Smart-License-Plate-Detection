@@ -1,221 +1,237 @@
-# SmartLicensePlateDetection
+# Smart License Plate Detection
 
-## 🚗 **Project Overview**  
-SmartLicensePlateDetection is a machine learning-based solution designed for real-time detection and recognition of vehicle license plates from images or video streams. The system utilizes **YOLOv5 (You Only Look Once)** for efficient object detection and integrates **Optical Character Recognition (OCR)** via EasyOCR to extract text from license plates. The extracted plate numbers are automatically saved into a **SQLite database** for easy retrieval and further processing.
-
-This solution can be used in various applications including:
-- Traffic monitoring systems
-- Parking management
-- Toll collection
-- Law enforcement and surveillance
+> Real-time license plate detection + OCR + database storage using YOLOv5 and EasyOCR.
 
 ---
 
-## 🛠️ **Features**
-- **Accurate License Plate Detection:** Identifies and locates license plates in various lighting and weather conditions.
-- **Optical Character Recognition (OCR):** Extracts text from detected license plates using EasyOCR.
-- **Real-Time Processing:** Supports image, video file, and live webcam input.
-- **Customizable Training:** Train the detection model with your own dataset for region-specific license plate recognition.
-- **Database Integration:** Automatically stores detected license plate numbers, confidence scores, timestamps, and source info in SQLite.
-- **Cross-Platform Compatibility:** Compatible with Windows, Linux, and cloud-based environments.
+## 📌 Project Overview
+
+**Smart License Plate Detection** is an end-to-end machine learning pipeline that:
+1. **Detects** license plates in images, videos, or live webcam feeds using a fine-tuned **YOLOv5s** model
+2. **Reads** the plate text using **EasyOCR** with multi-variant preprocessing for better accuracy on small plates
+3. **Stores** every detection (plate number, confidence, timestamp, source) in a **SQLite database**
+
+### Use Cases
+- Traffic monitoring & surveillance
+- Parking management systems
+- Toll collection automation
+- Law enforcement support
 
 ---
 
-## 🔧 **Installation Guide**
-To run this project, you'll need the following dependencies:
+## 🏆 Model Performance
 
-- torch
-- torchvision
-- numpy
-- opencv-python
-- easyocr
-- matplotlib
-- Pillow
+| Metric | Training (best epoch) | Test Set |
+|--------|-----------------------|----------|
+| mAP@0.5 | **90.0%** | **92.3%** |
+| mAP@0.5:0.95 | 43.8% | 54.1% |
+| Precision | 77.7% | 88.4% |
+| Recall | 85.4% | 90.0% |
+| F1 Score | 81.4% | — |
 
-You can install the required dependencies using pip:
-```bash
-pip install -r requirements.txt
+---
+
+## 🛠️ Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Object Detection | YOLOv5s (custom fine-tuned) |
+| OCR | EasyOCR |
+| Database | SQLite3 |
+| Computer Vision | OpenCV |
+| Deep Learning | PyTorch (CUDA-enabled) |
+| Language | Python 3.8+ |
+| GPU | NVIDIA (CUDA 12.x recommended) |
+
+---
+
+## 📁 Project Structure
+
+```
+Smart-License-Plate-Detection/
+├── detect_and_recognize.py     # End-to-end pipeline (detect + OCR + save to DB)
+├── ocr_pipeline.py             # EasyOCR plate text extractor (multi-variant preprocessing)
+├── evaluate.py                 # Full test set evaluation (mAP, Precision, Recall, F1)
+├── database.py                 # SQLite database interface
+├── testing.py                  # Quick single-image inference test
+├── xmltotxtconvert.py          # XML → YOLO TXT annotation converter
+├── data.yaml                   # Dataset paths config for YOLOv5
+├── requirements.txt            # Python dependencies
+├── run_all.bat                 # One-click Windows batch script (runs all steps)
+├── COMMANDS.txt                # Full command reference card
+├── evaluation_report.txt       # Auto-generated model metrics report
+├── plates.db                   # SQLite database (auto-created on first run)
+├── plate_crop_test.jpg         # Sample plate crop for OCR testing
+├── crop_251~255.jpg            # Test plate crops from detection
+├── evaluation_output/          # Annotated sample images from evaluate.py
+├── detection_output/           # Output from detect_and_recognize.py
+├── archive/                    # Dataset (download from Kaggle)
+│   ├── images/
+│   │   ├── train/
+│   │   ├── validation/
+│   │   └── test/
+│   └── labels/
+│       ├── train/
+│       ├── validation/
+│       └── test/
+└── yolov5/                     # YOLOv5 framework (included in repo)
+    ├── models/
+    │   └── experimental.py     # Patched: weights_only=False (PyTorch 2.6+ fix)
+    ├── utils/
+    │   └── metrics.py          # Patched: np.trapz → NumPy 2.x compat fix
+    └── runs/train/exp2/
+        └── weights/
+            └── best.pt         # Trained model weights (download separately)
 ```
 
-### **1. Clone the Repository**
+---
+
+## ⚙️ Installation
+
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/YASHzip/Smart-License-Plate-Detection.git
 cd Smart-License-Plate-Detection
 ```
 
-### **2. YOLOv5 installation**
+### 2. Install Dependencies
 ```bash
-git clone https://github.com/ultralytics/yolov5.git
-cd yolov5
-pip install -U -r requirements.txt
-cd ..
+pip install -r requirements.txt
 ```
 
-### **3. Prepare the Dataset**
-Organize your dataset in following order:
+> **GPU Users (Recommended):** Install PyTorch with CUDA support for significantly faster inference:
+> ```bash
+> pip uninstall torch torchvision -y
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --no-cache-dir
+> ```
+> Verify GPU is detected:
+> ```bash
+> python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+> ```
+
+### 3. Download the Dataset
+Download the dataset from Kaggle and place it in the `archive/` folder:
+
+📎 [Kaggle Car Plate Detection Dataset](https://www.kaggle.com/datasets/andrewmvd/car-plate-detection)
+
+Expected structure:
 ```
 archive/
-├── annotations/
-│   ├── test/
-│   ├── train/
-│   └── validation/
-├── images/
-│   ├── test/
-│   ├── train/
-│   └── validation/
+├── images/   (train / validation / test)
+└── labels/   (train / validation / test)
 ```
-Dataset source: [Kaggle Car Plate Detection](https://www.kaggle.com/datasets/andrewmvd/car-plate-detection?select=images)
 
-### **4. Convert XML files to txt**
-Convert the XML annotation files to YOLO `.txt` format. Update the paths inside `xmltotxtconvert.py` to match your system:
+### 4. Convert XML Annotations to YOLO Format
 ```bash
 python xmltotxtconvert.py
 ```
 
-### **5. Training the model**
-Train your YOLOv5 model with your custom dataset by opening a terminal inside the `yolov5/` directory:
+### 5. Train the Model
 ```bash
-python train.py --img 416 --batch 4 --epochs 100 --data ../data.yaml --weights yolov5s.pt --device 0
+python yolov5/train.py --img 416 --batch 4 --epochs 100 --data data.yaml --weights yolov5s.pt --device 0
 ```
-Trained weights are saved at:  
-`yolov5/runs/train/exp2/weights/best.pt`
+Trained weights are saved to: `yolov5/runs/train/exp2/weights/best.pt`
 
 ---
 
-### **6. 🧪 Testing and Evaluation**
+## 🚀 Quick Start
 
-#### Quick Inference Test
-Test the trained model on a single image:
-```bash
-python testing.py                                        # uses default test image
-python testing.py --image path/to/image.png              # custom image
-python testing.py --image img.jpg --conf 0.3 --no-save   # lower confidence threshold
-```
-
-#### Evaluation on Test Set (mAP, Precision, Recall, F1)
-Run a full evaluation on the test dataset:
-```bash
-python evaluate.py
-python evaluate.py --weights yolov5/runs/train/exp2/weights/best.pt --img 416
-python evaluate.py --skip-val    # only show training results summary
-```
-The evaluation report is saved to `evaluation_report.txt` and annotated sample images to `evaluation_output/`.
-
-#### 📊 Training Results (100 Epochs)
-| Metric | Best Value |
-|--------|-----------|
-| mAP@0.5 | **~90.0%** |
-| mAP@0.5:0.95 | **~52.6%** |
-| Precision | **~86%** |
-| Recall | **~85%** |
-
----
-
-### **7. 🔍 Full Detection + OCR Pipeline**
-Run the end-to-end pipeline (detection + plate text recognition + database storage):
-
-```bash
-# Single image
-python detect_and_recognize.py --source Cars252.png
-
-# Video file
-python detect_and_recognize.py --source road_video.mp4
-
-# Live webcam (index 0)
-python detect_and_recognize.py --source 0
-
-# Disable OCR (detection only)
-python detect_and_recognize.py --source 0 --no-ocr
-
-# Skip database saving
-python detect_and_recognize.py --source image.jpg --no-db
-```
-
-**Output:** Annotated image/video saved to `detection_output/`. Press **Q** or **ESC** to quit the webcam/video window.
-
----
-
-### **8. 🗄️ Database Management**
-All detected plates are automatically saved to `plates.db` (SQLite).
-
-```bash
-# View all stored detections
-python database.py
-
-# Search for a specific plate number
-python database.py --search MH12
-
-# Count total records
-python database.py --count
-
-# Clear all records
-python database.py --clear
-```
-
-**Database Schema (`plates.db` → `detections` table):**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER | Auto-incremented primary key |
-| `plate_number` | TEXT | Cleaned plate text (e.g. MH12AB1234) |
-| `raw_ocr_text` | TEXT | Raw EasyOCR output |
-| `image_path` | TEXT | Source image/video path |
-| `detection_confidence` | REAL | YOLOv5 bounding box confidence |
-| `ocr_confidence` | REAL | EasyOCR average confidence |
-| `source` | TEXT | `image`, `video`, or `webcam` |
-| `timestamp` | TEXT | Detection datetime (YYYY-MM-DD HH:MM:SS) |
-
----
-
-## 📁 **Project Structure**
-```
-Smart-License-Plate-Detection/
-├── data.yaml                   # Dataset config for YOLOv5
-├── requirements.txt            # Python dependencies
-├── xmltotxtconvert.py          # XML → YOLO TXT annotation converter
-├── testing.py                  # Quick single-image inference test
-├── evaluate.py                 # Full test set evaluation (mAP / F1)
-├── ocr_pipeline.py             # EasyOCR-based plate text extractor
-├── database.py                 # SQLite database interface
-├── detect_and_recognize.py     # End-to-end pipeline (image/video/webcam)
-├── Link to dataset.txt         # Kaggle dataset link
-├── Results/                    # Training result plots
-└── yolov5/                     # YOLOv5 framework (clone separately)
-    └── runs/train/exp2/
-        ├── weights/
-        │   ├── best.pt         # Best model checkpoint
-        │   └── last.pt         # Last epoch checkpoint
-        └── results.csv         # Per-epoch training metrics
-```
-
----
-
-## 📦 **Tech Stack**
-| Component | Technology |
-|-----------|-----------|
-| Object Detection | YOLOv5s (custom fine-tuned) |
-| OCR | EasyOCR |
-| Database | SQLite3 (built-in Python) |
-| Computer Vision | OpenCV |
-| Deep Learning | PyTorch |
-| Language | Python 3.8+ |
-
----
-
-## 🚀 **Quick Start (All-in-One)**
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Test the model on an image
+# 2. Quick inference test on a single image
 python testing.py --image archive/images/test/Cars255.png
 
-# 3. Run full evaluation
+# 3. Run full model evaluation
 python evaluate.py --skip-val
 
-# 4. Run real-time webcam detection + OCR
+# 4. Run full pipeline (detection + OCR + database)
+python detect_and_recognize.py --source archive/images/test/Cars255.png
+
+# 5. Live webcam detection
 python detect_and_recognize.py --source 0
 
-# 5. View database records
+# 6. View saved plate records
 python database.py
 ```
+
+Or just double-click **`run_all.bat`** on Windows to run all steps interactively.
+
+---
+
+## 🔍 Usage Guide
+
+### Testing – Quick Inference
+```bash
+python testing.py                                         # default test image
+python testing.py --image path/to/image.png               # custom image
+python testing.py --image img.jpg --conf 0.3 --no-save    # lower confidence
+```
+
+### Evaluation – mAP, Precision, Recall, F1
+```bash
+python evaluate.py                   # full test-set evaluation
+python evaluate.py --skip-val        # training summary only (faster)
+```
+Output: `evaluation_report.txt` + annotated images in `evaluation_output/`
+
+### OCR Pipeline – Read Plate Text
+```bash
+# Run on a cropped plate image
+python ocr_pipeline.py --image plate_crop_test.jpg
+
+# Without preprocessing
+python ocr_pipeline.py --image plate_crop_test.jpg --no-preprocess
+```
+
+### Full Pipeline – Detect + OCR + Save to DB
+```bash
+python detect_and_recognize.py --source archive/images/test/Cars255.png   # image
+python detect_and_recognize.py --source archive/images/test/              # folder
+python detect_and_recognize.py --source road_video.mp4                    # video
+python detect_and_recognize.py --source 0                                 # webcam
+```
+
+**Useful flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--no-save` | Don't save annotated output to disk |
+| `--no-db` | Skip database saving |
+| `--no-ocr` | Detection bounding boxes only |
+| `--conf 0.5` | Set detection confidence threshold |
+
+### Database Management
+```bash
+python database.py              # view all records
+python database.py --search MH  # search by plate text
+python database.py --count      # total record count
+python database.py --clear      # delete all records
+```
+
+**Database Schema (`plates.db → detections`):**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-incremented primary key |
+| `plate_number` | TEXT | Cleaned plate text (e.g. `MH12AB1234`) |
+| `raw_ocr_text` | TEXT | Raw EasyOCR output |
+| `image_path` | TEXT | Source file path |
+| `detection_confidence` | REAL | YOLOv5 bounding box confidence |
+| `ocr_confidence` | REAL | EasyOCR average confidence |
+| `source` | TEXT | `image`, `video`, or `webcam` |
+| `timestamp` | TEXT | Detection datetime (`YYYY-MM-DD HH:MM:SS`) |
+
+---
+
+## 📋 All Commands Reference
+
+See **`COMMANDS.txt`** for a complete copy-paste command reference, or run **`run_all.bat`** on Windows for a step-by-step guided execution.
+
+---
+
+## 📄 License
+
+This project is for academic and educational purposes.  
+YOLOv5 is licensed under [AGPL-3.0](https://github.com/ultralytics/yolov5/blob/master/LICENSE).
