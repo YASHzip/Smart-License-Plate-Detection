@@ -1,0 +1,88 @@
+==============================================================
+  SMART LICENSE PLATE DETECTION — COMMAND REFERENCE
+==============================================================
+
+--------------------------------------------------------------
+ SETUP (run once)
+--------------------------------------------------------------
+pip install -r requirements.txt
+
+
+--------------------------------------------------------------
+ EVALUATION — Model metrics & annotated samples
+--------------------------------------------------------------
+
+# Full evaluation (runs on test set, takes ~30s)
+python evaluate.py
+
+# Quick report only (skips test-set pass, uses cached training results)
+python evaluate.py --skip-val
+
+# Output:
+#   evaluation_report.txt       <- metrics report
+#   evaluation_output\          <- 5 annotated sample images
+
+
+--------------------------------------------------------------
+ OCR PIPELINE — Read text from a plate crop
+--------------------------------------------------------------
+
+# Run on a cropped plate image
+python ocr_pipeline.py --image plate_crop_test.jpg
+
+# Run without preprocessing (raw EasyOCR)
+python ocr_pipeline.py --image plate_crop_test.jpg --no-preprocess
+
+# NOTE: Pass a CROPPED plate region, not a full car photo.
+
+
+--------------------------------------------------------------
+ FULL PIPELINE — Detect + OCR + Save to DB
+--------------------------------------------------------------
+
+# Single image
+python detect_and_recognize.py --source archive/images/test/Cars251.png
+
+# All test images (folder)
+python detect_and_recognize.py --source archive/images/test/
+
+# Live webcam
+python detect_and_recognize.py --source 0
+
+# Video file
+python detect_and_recognize.py --source road_video.mp4
+
+# Output:
+#   detection_output\           <- annotated images/video
+#   plates.db                   <- SQLite database of detections
+
+
+--------------------------------------------------------------
+ DATABASE — View saved plate records
+--------------------------------------------------------------
+python database.py
+
+
+--------------------------------------------------------------
+ USEFUL FLAGS (add to any detect_and_recognize.py command)
+--------------------------------------------------------------
+--no-save        Don't save output image/video to disk
+--no-db          Skip saving detections to the database
+--no-ocr         Detection bounding boxes only (no text reading)
+--conf 0.5       Set detection confidence threshold (default: 0.40)
+--iou  0.45      Set NMS IoU threshold (default: 0.45)
+--img  416       Set inference image size (default: 416)
+--weights path   Use a different model weights file
+
+
+--------------------------------------------------------------
+ QUICK ALL-IN-ONE (copy-paste)
+--------------------------------------------------------------
+pip install -r requirements.txt
+python evaluate.py --skip-val
+python detect_and_recognize.py --source archive/images/test/Cars251.png
+
+
+--------------------------------------------------------------
+ PRESS Q or ESC to close the image window during pipeline run
+--------------------------------------------------------------

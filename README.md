@@ -208,7 +208,7 @@ Smart-License-Plate-Detection/
 pip install -r requirements.txt
 
 # 2. Test the model on an image
-python testing.py --image archive/images/test/Cars252.png
+python testing.py --image archive/images/test/Cars255.png
 
 # 3. Run full evaluation
 python evaluate.py --skip-val

@@ -1,5 +1,6 @@
-train: E:\License Plate Number Detection\archive\images\train  # Path to your training images
-val: E:\License Plate Number Detection\archive\images\validation  # Path to your validation images
+train: D:\License Plate Number Detection\archive\images\train  # Path to your training images
+val: D:\License Plate Number Detection\archive\images\validation  # Path to your validation images
+test: D:\License Plate Number Detection\archive\images\test  # Path to your test images
 
 nc: 1  # Number of classes (1 for license plate)
 names: ['license_plate']  # List of class names (use the name of your class here)

@@ -97,7 +97,7 @@ def run_val(args):
         "--weights", args.weights,
         "--data",    args.data,
         "--img",     str(args.img),
-        "--conf-thres", str(args.conf),
+        "--conf-thres", "0.001",   # val.py requires low conf for valid mAP computation
         "--iou-thres",  str(args.iou),
         "--task",    "test",
         "--save-txt",
@@ -107,11 +107,11 @@ def run_val(args):
         "--exist-ok",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(YOLOV5_DIR))
-        print(result.stdout)
-        if result.returncode != 0:
-            print("[WARNING] val.py stderr:", result.stderr[-2000:])
-        return result.stdout
+        result = subprocess.run(cmd, text=True, cwd=str(YOLOV5_DIR),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        combined = result.stdout or ""
+        print(combined)
+        return combined
     except Exception as e:
         print(f"[ERROR] Failed to run val.py: {e}")
         return None
@@ -242,7 +242,7 @@ def write_report(best_train_metrics, val_output):
     ]
 
     report_text = "\n".join(lines)
-    with open(REPORT_PATH, "w") as f:
+    with open(REPORT_PATH, "w", encoding="utf-8") as f:
         f.write(report_text)
 
     print("\n" + report_text)

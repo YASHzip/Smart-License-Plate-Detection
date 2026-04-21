@@ -314,14 +314,14 @@ def _print_plates(plates: list):
     if not plates:
         print("  No license plates detected.")
         return
-    print(f"\n  {'─'*55}")
+    print(f"\n  {'-'*55}")
     print(f"  {'#':<4} {'Plate':<15} {'Det Conf':>9}  {'OCR Conf':>9}  BBox")
-    print(f"  {'─'*55}")
+    print(f"  {'-'*55}")
     for i, p in enumerate(plates, 1):
         bbox = p["bbox"]
-        print(f"  {i:<4} {p['plate'] or '—':<15} "
+        print(f"  {i:<4} {p['plate'] or '-':<15} "
               f"{p['det_conf']:>9.1%}  {p['ocr_conf']:>9.1%}  {bbox}")
-    print(f"  {'─'*55}\n")
+    print(f"  {'-'*55}\n")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────

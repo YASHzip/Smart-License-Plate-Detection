@@ -1,0 +1,26 @@
+============================================================
+  SMART LICENSE PLATE DETECTION — EVALUATION REPORT
+============================================================
+  Generated : 2026-04-22 00:16:46
+  Model     : YOLOv5s (custom fine-tuned)
+  Weights   : runs/train/exp2/weights/best.pt
+  Dataset   : Kaggle Car Plate Detection
+  Classes   : 1 (license_plate)
+============================================================
+
+  ── TRAINING SUMMARY (best epoch from results.csv) ──
+  Epoch          : 18 / 99
+  Precision      : 0.7769  (77.7%)
+  Recall         : 0.8542  (85.4%)
+  F1 Score       : 0.8137  (81.4%)
+  mAP@0.5        : 0.9001  (90.0%)
+  mAP@0.5:0.95   : 0.4384  (43.8%)
+  Val Box Loss   : 0.038593
+  Val Obj Loss   : 0.005543
+
+  ── TEST SET EVALUATION (val.py output) ──
+  [val.py was skipped or failed — run without --skip-val for full test metrics]
+
+============================================================
+  Sample annotated images saved to: evaluation_output/
+============================================================
