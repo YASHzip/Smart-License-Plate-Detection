@@ -1,23 +1,27 @@
 """
-detect_and_recognize.py — Smart License Plate Detection
+detect_and_recognize.py - Smart License Plate Detection
 Phase D: Full End-to-End Pipeline
 
 Detects license plates using YOLOv5 and extracts plate numbers via EasyOCR.
 Supports image, video, and real-time webcam input.
+
+For webcam/video: saves ONE best-quality annotated frame per physical plate
+at session end (using fuzzy deduplication to avoid duplicate saves).
 Detected plates are automatically saved to the SQLite database.
 
 Usage:
     python detect_and_recognize.py --source Cars252.png          # single image
     python detect_and_recognize.py --source road_video.mp4       # video file
     python detect_and_recognize.py --source 0                    # webcam (index 0)
-    python detect_and_recognize.py --source 0 --no-save          # webcam, don't save output
-    python detect_and_recognize.py --source image.jpg --no-db    # skip database saving
+    python detect_and_recognize.py --source 0 --no-save          # webcam, don't save
+    python detect_and_recognize.py --source image.jpg --no-db    # skip database
 """
 
 import argparse
 import os
 import sys
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime
 
@@ -25,14 +29,14 @@ import cv2
 import torch
 import numpy as np
 
-# ─── Path setup ───────────────────────────────────────────────────────────────
-BASE_DIR   = Path(__file__).parent.resolve()
-YOLOV5_DIR = BASE_DIR / "yolov5"
+# --- Path setup ---------------------------------------------------------------
+BASE_DIR        = Path(__file__).parent.resolve()
+YOLOV5_DIR      = BASE_DIR / "yolov5"
 DEFAULT_WEIGHTS = YOLOV5_DIR / "runs" / "train" / "exp2" / "weights" / "best.pt"
-OUTPUT_DIR = BASE_DIR / "detection_output"
+OUTPUT_DIR      = BASE_DIR / "detection_output"
 
 
-# ─── Argument parsing ─────────────────────────────────────────────────────────
+# --- Argument parsing ---------------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Smart License Plate Detection + Recognition Pipeline"
@@ -54,18 +58,18 @@ def parse_args():
     parser.add_argument("--no-ocr",  action="store_true",
                         help="Disable OCR (detection bounding boxes only)")
     parser.add_argument("--show",    action="store_true", default=True,
-                        help="Display output window (default: True for webcam/video)")
+                        help="Display output window (default: True)")
     parser.add_argument("--db",      type=str, default=str(BASE_DIR / "plates.db"),
                         help="Path to SQLite database file")
     return parser.parse_args()
 
 
-# ─── Model loading ────────────────────────────────────────────────────────────
+# --- Model loading ------------------------------------------------------------
 def load_model(weights_path: str, conf: float, iou: float):
     """Load the custom YOLOv5 model."""
     if not Path(weights_path).exists():
         print(f"[ERROR] Weights not found: {weights_path}")
-        print("        Please ensure the model is trained (yolov5/runs/train/exp2/weights/best.pt)")
+        print("        Train the model first or check the path.")
         sys.exit(1)
 
     print(f"[INFO] Loading YOLOv5 model: {weights_path}")
@@ -80,7 +84,7 @@ def load_model(weights_path: str, conf: float, iou: float):
     return model
 
 
-# ─── Inference on a single frame ──────────────────────────────────────────────
+# --- Inference on a single frame ----------------------------------------------
 def process_frame(frame_bgr: np.ndarray,
                   model,
                   ocr_func,
@@ -89,9 +93,7 @@ def process_frame(frame_bgr: np.ndarray,
                   args) -> tuple:
     """
     Run detection + OCR on one frame/image.
-
-    Returns:
-        annotated_frame (np.ndarray), list of detected plate dicts
+    Returns: (annotated_frame, list of detected plate dicts)
     """
     frame_rgb  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     results    = model(frame_rgb, size=args.img)
@@ -102,32 +104,29 @@ def process_frame(frame_bgr: np.ndarray,
 
     for *box, det_conf, cls in detections:
         x1, y1, x2, y2 = map(int, box)
-        # Clamp to frame dimensions
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(frame_bgr.shape[1], x2), min(frame_bgr.shape[0], y2)
 
         if x2 <= x1 or y2 <= y1:
             continue
 
-        crop = frame_bgr[y1:y2, x1:x2]
-        plate_text   = ""
-        ocr_conf     = 0.0
+        crop       = frame_bgr[y1:y2, x1:x2]
+        plate_text = ""
+        ocr_conf   = 0.0
 
-        # ── OCR ───────────────────────────────────────────────────────────
         if not args.no_ocr and ocr_func is not None:
-            ocr_result   = ocr_func(crop)
-            plate_text   = ocr_result.get("text", "")
-            ocr_conf     = ocr_result.get("confidence", 0.0)
+            ocr_result = ocr_func(crop)
+            plate_text = ocr_result.get("text", "")
+            ocr_conf   = ocr_result.get("confidence", 0.0)
 
         plates_found.append({
-            "plate":       plate_text,
-            "det_conf":    float(det_conf),
-            "ocr_conf":    ocr_conf,
-            "bbox":        (x1, y1, x2, y2),
-            "source":      source_name,
+            "plate":    plate_text,
+            "det_conf": float(det_conf),
+            "ocr_conf": ocr_conf,
+            "bbox":     (x1, y1, x2, y2),
+            "source":   source_name,
         })
 
-        # ── Save to database ───────────────────────────────────────────────
         if not args.no_db and db_save_func is not None and plate_text:
             db_save_func(
                 plate_number=plate_text,
@@ -139,17 +138,14 @@ def process_frame(frame_bgr: np.ndarray,
                 db_path=args.db,
             )
 
-        # ── Draw bounding box + label ──────────────────────────────────────
-        color  = (0, 220, 0)
-        lw     = max(2, int((frame_bgr.shape[0] + frame_bgr.shape[1]) / 600))
-
+        # Draw bounding box + label
+        color = (0, 220, 0)
+        lw    = max(2, int((frame_bgr.shape[0] + frame_bgr.shape[1]) / 600))
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, lw)
 
         label_det  = f"{det_conf:.0%}"
         label_text = plate_text if plate_text else "No text"
         label_ocr  = f"{ocr_conf:.0%}" if plate_text else ""
-
-        # Background for label
         label_full = f" {label_text}  det:{label_det}"
         if label_ocr:
             label_full += f"  ocr:{label_ocr}"
@@ -169,7 +165,6 @@ def process_frame(frame_bgr: np.ndarray,
 
 
 def _source_type(source: str) -> str:
-    """Determine source type label from source string."""
     try:
         int(source)
         return "webcam"
@@ -180,9 +175,8 @@ def _source_type(source: str) -> str:
         return "image"
 
 
-# ─── OSD overlay (On-Screen Display) ─────────────────────────────────────────
+# --- OSD overlay --------------------------------------------------------------
 def draw_osd(frame: np.ndarray, fps: float, plate_count: int, total_saved: int):
-    """Draw FPS and plate count overlay on frame."""
     h, w = frame.shape[:2]
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (260, 80), (0, 0, 0), -1)
@@ -196,7 +190,121 @@ def draw_osd(frame: np.ndarray, fps: float, plate_count: int, total_saved: int):
     return frame
 
 
-# ─── Source routing ───────────────────────────────────────────────────────────
+# --- Best Frame Tracker (with fuzzy deduplication) ---------------------------
+class BestFrameTracker:
+    """
+    Tracks the single best (clearest) frame per PHYSICAL plate.
+
+    Problem: OCR reads the same plate differently frame-to-frame
+    (e.g. 'MH20EJ0364', 'MH20EJ036', 'MH20J0364'), creating multiple
+    duplicate images and DB entries for the same car — wasting storage.
+
+    Fix: fuzzy matching via difflib.SequenceMatcher (built-in, no install).
+    Any two readings with >= 80% similarity are treated as the same plate.
+    Only the highest-scoring frame is kept and saved at session end.
+    Result: exactly ONE image + ONE DB record per physical plate.
+
+    Scoring formula:
+        score = det_conf x ocr_conf x (plate_area / frame_area)
+    """
+
+    FUZZY_THRESHOLD = 0.80   # readings >= 80% similar = same physical plate
+
+    def __init__(self):
+        # canonical_text -> {score, frame, annotated, plate_data}
+        self._best: dict = {}
+
+    def _find_matching_key(self, text: str):
+        """Return existing canonical key fuzzy-similar to text, or None."""
+        for key in self._best:
+            if SequenceMatcher(None, text, key).ratio() >= self.FUZZY_THRESHOLD:
+                return key
+        return None
+
+    def update(self, frame_bgr: np.ndarray, annotated: np.ndarray, plates: list):
+        """Call once per frame with the list of detected plates."""
+        if not plates:
+            return
+        frame_area = frame_bgr.shape[0] * frame_bgr.shape[1] or 1
+
+        for p in plates:
+            text = p.get("plate", "").strip()
+            if not text:
+                continue
+
+            x1, y1, x2, y2 = p["bbox"]
+            plate_area = max((x2 - x1) * (y2 - y1), 1)
+            ocr_w  = p["ocr_conf"] if p["ocr_conf"] > 0 else 0.05
+            score  = p["det_conf"] * ocr_w * (plate_area / frame_area)
+
+            canon_key = self._find_matching_key(text)
+
+            if canon_key is None:
+                # Genuinely new plate — store it
+                self._best[text] = {
+                    "score":     score,
+                    "frame":     frame_bgr.copy(),
+                    "annotated": annotated.copy(),
+                    "plate":     p,
+                }
+            elif score > self._best[canon_key]["score"]:
+                # Same physical plate, better frame found.
+                # Promote canonical key to the reading with higher OCR confidence.
+                old = self._best.pop(canon_key)
+                new_key = text if p["ocr_conf"] >= old["plate"]["ocr_conf"] \
+                          else canon_key
+                self._best[new_key] = {
+                    "score":     score,
+                    "frame":     frame_bgr.copy(),
+                    "annotated": annotated.copy(),
+                    "plate":     p,
+                }
+            # else: same plate, worse frame — silently discard
+
+    def save_best_frames(self, output_dir: Path, db_save_func, db_path: str,
+                         source_label: str = "webcam"):
+        """Save ONE best annotated frame per physical plate and log to DB."""
+        if not self._best:
+            print("[BestFrame] No plates tracked - nothing to save.")
+            return
+
+        best_dir = output_dir / "best_frames"
+        best_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n[BestFrame] {len(self._best)} unique plate(s) -> {best_dir}")
+        print(f"  {'-'*62}")
+        print(f"  {'Plate':<15} {'Score':>8}  {'Det':>6}  {'OCR':>6}  File")
+        print(f"  {'-'*62}")
+
+        for text, entry in self._best.items():
+            p = entry["plate"]
+            safe_name = text.replace("/", "-").replace("\\", "-")
+            filename  = f"{safe_name}_best.jpg"
+            out_path  = best_dir / filename
+            cv2.imwrite(str(out_path), entry["annotated"])
+
+            print(f"  {text:<15} {entry['score']:>8.4f}  "
+                  f"{p['det_conf']:>5.0%}  {p['ocr_conf']:>5.0%}  {filename}")
+
+            if db_save_func:
+                try:
+                    db_save_func(
+                        plate_number=text,
+                        raw_ocr_text=p.get("plate", text),
+                        image_path=str(out_path),
+                        detection_confidence=p["det_conf"],
+                        ocr_confidence=p["ocr_conf"],
+                        source=source_label,
+                        db_path=db_path,
+                    )
+                except Exception as e:
+                    print(f"  [WARNING] DB save failed for {text}: {e}")
+
+        print(f"  {'-'*62}")
+        print(f"[BestFrame] Done. 1 image per physical plate saved to: {best_dir}\n")
+
+
+# --- Source routing -----------------------------------------------------------
 def run_image(source, model, ocr_func, db_save_func, args):
     """Process a single image file."""
     img = cv2.imread(source)
@@ -222,10 +330,9 @@ def run_image(source, model, ocr_func, db_save_func, args):
 
 
 def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
-    """Process a video file or a live webcam feed."""
-    # Try numeric webcam index
+    """Process a video file or live webcam feed."""
     try:
-        cap_source = int(source)
+        cap_source  = int(source)
         source_type = "webcam"
     except ValueError:
         cap_source  = source
@@ -241,8 +348,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
     w_in   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h_in   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Video writer
-    writer = None
+    writer   = None
     out_path = None
     if not args.no_save and source_type == "video":
         os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -257,7 +363,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
     fps_display = 0.0
     t0 = time.time()
 
-    # Best-frame tracker — saves clearest frame per plate at session end
+    # Best-frame tracker: saves clearest frame per physical plate at session end
     tracker = BestFrameTracker()
 
     try:
@@ -272,8 +378,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
 
             frame_idx += 1
 
-            # Run detection + OCR on this frame
-            # NOTE: skip DB saving here; we only save the BEST frame at the end
+            # Run detection + OCR (skip per-frame DB save; best frame saves at end)
             annotated, plates = process_frame(
                 frame, model, ocr_func, None,
                 f"{source_type}_frame_{frame_idx}", args
@@ -287,10 +392,9 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
             elapsed     = time.time() - t0
             fps_display = frame_idx / elapsed if elapsed > 0 else 0
 
-            # OSD
             annotated = draw_osd(annotated, fps_display, len(plates), total_saved)
 
-            # Print detections to console
+            # Console log
             for p in plates:
                 if p["plate"]:
                     print(f"  [Frame {frame_idx:>5}] Plate: {p['plate']:<14}  "
@@ -302,7 +406,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
             if args.show:
                 cv2.imshow("Smart License Plate Detection  |  Q to quit", annotated)
                 key = cv2.waitKey(1) & 0xFF
-                if key == ord("q") or key == 27:   # Q or ESC
+                if key == ord("q") or key == 27:
                     print("\n[INFO] Quitting ...")
                     break
 
@@ -315,7 +419,7 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
             print(f"[INFO] Video saved: {out_path}")
         cv2.destroyAllWindows()
 
-    # Save the best frame for each unique plate + write final DB records
+    # Save the best (clearest) frame for each unique physical plate
     if not args.no_save:
         tracker.save_best_frames(
             output_dir=OUTPUT_DIR,
@@ -323,90 +427,6 @@ def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
             db_path=args.db,
             source_label=source_type,
         )
-
-
-# --- Best Frame Tracker -------------------------------------------------------
-class BestFrameTracker:
-    """
-    Tracks the single best (clearest) frame per unique plate number.
-
-    Scoring formula:
-        score = det_conf x ocr_conf x (plate_area / frame_area)
-
-    The frame with the highest score is kept in memory and saved at the
-    end of the session.
-    """
-
-    def __init__(self):
-        # plate_text -> {score, frame, annotated, plate_data}
-        self._best: dict = {}
-
-    def update(self, frame_bgr: np.ndarray, annotated: np.ndarray,
-               plates: list):
-        """Call once per frame with the list of detected plates."""
-        if not plates:
-            return
-        frame_area = frame_bgr.shape[0] * frame_bgr.shape[1] or 1
-        for p in plates:
-            text = p.get("plate", "").strip()
-            if not text:
-                continue
-            x1, y1, x2, y2 = p["bbox"]
-            plate_area = max((x2 - x1) * (y2 - y1), 1)
-            # Use a small fallback OCR weight even if confidence is 0
-            ocr_w = p["ocr_conf"] if p["ocr_conf"] > 0 else 0.05
-            score = p["det_conf"] * ocr_w * (plate_area / frame_area)
-
-            if text not in self._best or score > self._best[text]["score"]:
-                self._best[text] = {
-                    "score":     score,
-                    "frame":     frame_bgr.copy(),
-                    "annotated": annotated.copy(),
-                    "plate":     p,
-                }
-
-    def save_best_frames(self, output_dir: Path, db_save_func, db_path: str,
-                         source_label: str = "webcam"):
-        """Save the best frame for each tracked plate and write to DB."""
-        if not self._best:
-            print("[BestFrame] No plates tracked — nothing to save.")
-            return
-
-        best_dir = output_dir / "best_frames"
-        best_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"\n[BestFrame] Saving {len(self._best)} best frame(s) to: {best_dir}")
-        print(f"  {'-'*60}")
-        print(f"  {'Plate':<15} {'Score':>8}  {'Det':>6}  {'OCR':>6}  Saved as")
-        print(f"  {'-'*60}")
-
-        for text, entry in self._best.items():
-            p = entry["plate"]
-            safe_name = text.replace("/", "-").replace("\\", "-")
-            filename  = f"{safe_name}_best.jpg"
-            out_path  = best_dir / filename
-            cv2.imwrite(str(out_path), entry["annotated"])
-
-            print(f"  {text:<15} {entry['score']:>8.4f}  "
-                  f"{p['det_conf']:>5.0%}  {p['ocr_conf']:>5.0%}  {filename}")
-
-            # Save best reading to DB
-            if db_save_func:
-                try:
-                    db_save_func(
-                        plate_number=text,
-                        raw_ocr_text=p.get("plate", text),
-                        image_path=str(out_path),
-                        detection_confidence=p["det_conf"],
-                        ocr_confidence=p["ocr_conf"],
-                        source=source_label,
-                        db_path=db_path,
-                    )
-                except Exception as e:
-                    print(f"  [WARNING] DB save failed for {text}: {e}")
-
-        print(f"  {'-'*60}")
-        print(f"[BestFrame] Done. Check: {best_dir}\n")
 
 
 # --- Console helpers ----------------------------------------------------------
@@ -424,11 +444,10 @@ def _print_plates(plates: list):
     print(f"  {'-'*55}\n")
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main ---------------------------------------------------------------------
 def main():
     args = parse_args()
 
-    # Validate weights
     if not Path(args.weights).exists():
         print(f"[ERROR] Weights file not found: {args.weights}")
         sys.exit(1)
@@ -443,10 +462,8 @@ def main():
     print(f"  Database: {'Disabled' if args.no_db else args.db}")
     print("=" * 65)
 
-    # Load YOLOv5 model
     model = load_model(args.weights, args.conf, args.iou)
 
-    # Load OCR function (lazy)
     ocr_func = None
     if not args.no_ocr:
         try:
@@ -457,7 +474,6 @@ def main():
             print(f"[WARNING] Could not import ocr_pipeline: {e}")
             print("          Install EasyOCR with:  pip install easyocr")
 
-    # Load DB save function
     db_save_func = None
     if not args.no_db:
         try:
@@ -470,7 +486,6 @@ def main():
 
     print()
 
-    # Route by source type
     source  = args.source.strip()
     is_file = Path(source).exists()
     is_cam  = source.isdigit()
