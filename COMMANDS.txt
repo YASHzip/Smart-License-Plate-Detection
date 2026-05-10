@@ -1,5 +1,7 @@
 ==============================================================
   SMART LICENSE PLATE DETECTION — COMMAND REFERENCE
+  Indian Fine-Tuned Model: yolov5/runs/train/indian_finetune6/weights/best.pt
+  Final Metrics: mAP@0.5=99.4%  Precision=99.3%  Recall=99.7%
 ==============================================================
 
 --------------------------------------------------------------
@@ -12,11 +14,11 @@ pip install -r requirements.txt
  EVALUATION — Model metrics & annotated samples
 --------------------------------------------------------------
 
-# Full evaluation (runs on test set, takes ~30s)
-python evaluate.py
+# Full evaluation on Indian dataset (runs val.py on test split)
+python evaluate.py --weights yolov5\runs\train\indian_finetune6\weights\best.pt --data indian_data.yaml --img 640
 
-# Quick report only (skips test-set pass, uses cached training results)
-python evaluate.py --skip-val
+# Quick report only (skips val.py pass)
+python evaluate.py --weights yolov5\runs\train\indian_finetune6\weights\best.pt --data indian_data.yaml --skip-val
 
 # Output:
 #   evaluation_report.txt       <- metrics report
@@ -40,11 +42,14 @@ python ocr_pipeline.py --image plate_crop_test.jpg --no-preprocess
  FULL PIPELINE — Detect + OCR + Save to DB
 --------------------------------------------------------------
 
-# Single image
+# Single image (auto-uses indian_finetune6/best.pt if present)
 python detect_and_recognize.py --source archive/images/test/Cars251.png
 
-# All test images (folder)
-python detect_and_recognize.py --source archive/images/test/
+# Folder of images (NEW — processes every image in the folder)
+python detect_and_recognize.py --source indian_dataset\images\val
+
+# Explicit weights path
+python detect_and_recognize.py --source archive/images/test/Cars251.png --weights yolov5\runs\train\indian_finetune6\weights\best.pt --img 640
 
 # Live webcam
 python detect_and_recognize.py --source 0
@@ -54,6 +59,7 @@ python detect_and_recognize.py --source road_video.mp4
 
 # Output:
 #   detection_output\           <- annotated images/video
+#   detection_output\best_frames\ <- best frame per plate (video/webcam)
 #   plates.db                   <- SQLite database of detections
 
 
@@ -79,10 +85,172 @@ python database.py
  QUICK ALL-IN-ONE (copy-paste)
 --------------------------------------------------------------
 pip install -r requirements.txt
-python evaluate.py --skip-val
+python evaluate.py --weights yolov5\runs\train\indian_finetune6\weights\best.pt --data indian_data.yaml --skip-val
 python detect_and_recognize.py --source archive/images/test/Cars251.png
 
 
 --------------------------------------------------------------
  PRESS Q or ESC to close the image window during pipeline run
+--------------------------------------------------------------
+
+
+--------------------------------------------------------------
+ FINE-TUNING ON INDIAN NUMBER PLATE DATA
+--------------------------------------------------------------
+
+ STEP 1 — Download a Kaggle dataset (pick one, no login needed for public datasets)
+   Recommended:
+     https://www.kaggle.com/datasets/theiturhs/indian-vehicle-number-plate-dataset
+     https://www.kaggle.com/datasets/nickyazdani/license-plate-detection
+
+   Option A — Kaggle CLI (fastest):
+     pip install kaggle
+     # Place your kaggle.json API key in C:\Users\<you>\.kaggle\kaggle.json
+     kaggle datasets download -d theiturhs/indian-vehicle-number-plate-dataset
+     Expand-Archive indian-vehicle-number-plate-dataset.zip -DestinationPath indian_raw
+
+   Option B — Manual:
+     Go to the Kaggle link above → Download → unzip to a folder, e.g. D:\indian_raw
+
+ STEP 2 — Prepare merged dataset (merges archive/ + new Indian data, splits 80/10/10)
+   python prepare_indian_dataset.py --new-dataset D:\indian_raw
+
+   # Or, if you only want to use the existing archive/ data:
+   python prepare_indian_dataset.py --archive-only
+
+ STEP 3 — Fine-tune the model (GPU, ~2.5 hrs for 150 epochs on RTX 3050)
+   cd yolov5
+   python train.py ^
+     --img 640 ^
+     --batch 8 ^
+     --epochs 150 ^
+     --data ..\indian_data.yaml ^
+     --weights runs\train\exp2\weights\best.pt ^
+     --hyp ..\hyp_indian.yaml ^
+     --project runs\train ^
+     --name indian_finetune ^
+     --device 0
+
+ STEP 3b — Resume after a crash (YOLOv5 saves last.pt every epoch)
+   python train.py --resume runs\train\indian_finetune6\weights\last.pt
+
+ STEP 4 — Validate fine-tuned model on Indian test set
+   python val.py ^
+     --weights runs\train\indian_finetune6\weights\best.pt ^
+     --data ..\indian_data.yaml ^
+     --img 640 ^
+     --device 0
+
+ STEP 5 — Run detection (auto-uses fine-tuned weights)
+   cd ..
+   python detect_and_recognize.py --source <your_image_or_video>
+
+ NOTE: detect_and_recognize.py auto-selects the best Indian model
+       from runs\train\indian_finetune6\weights\best.pt.
+
+--------------------------------------------------------------
+
+
+--------------------------------------------------------------
+ SYNTHETIC DATA GENERATION (All 36 Indian States)
+--------------------------------------------------------------
+
+ Download the synthetic plate crops dataset (18,000 images, all states, free):
+   https://www.kaggle.com/datasets/abtexp/synthetic-indian-license-plates
+   Unzip to D:\synthetic_plates
+
+ Generate 4,000 synthetic training images using archive/ as backgrounds:
+   python generate_synthetic_data.py ^
+     --plates D:\synthetic_plates ^
+     --output synthetic_dataset ^
+     --count 4000
+
+ Generate with custom road backgrounds:
+   python generate_synthetic_data.py ^
+     --plates      D:\synthetic_plates ^
+     --backgrounds D:\road_images ^
+     --output      synthetic_dataset ^
+     --count       4000 ^
+     --plates-per-image 2
+
+ Then merge synthetic data into your training set:
+   python prepare_indian_dataset.py ^
+     --new-dataset synthetic_dataset ^
+     --archive-only
+
+
+--------------------------------------------------------------
+ AUTO-ANNOTATION (Label Unlabelled Indian Plate Images)
+--------------------------------------------------------------
+
+ Auto-label a folder of unlabelled images using the current model:
+   python auto_annotate.py --images D:\unlabelled_plates
+
+ Save labels to a separate output folder:
+   python auto_annotate.py ^
+     --images   D:\unlabelled_plates ^
+     --output   D:\labelled_output ^
+     --min-conf 0.55 ^
+     --copy-images
+
+ Then add auto-labelled data to training:
+   python prepare_indian_dataset.py --new-dataset D:\labelled_output
+
+
+--------------------------------------------------------------
+ RECOMMENDED FULL ALL-INDIA TRAINING WORKFLOW
+--------------------------------------------------------------
+
+ This workflow gives the best results across all 36 Indian states.
+ Follow these steps in order:
+
+ 1. Download synthetic plates (all states):
+      https://www.kaggle.com/datasets/abtexp/synthetic-indian-license-plates
+      Unzip → D:\synthetic_plates
+
+ 2. Download real Indian plate dataset (YOLO format):
+      https://www.kaggle.com/datasets/kedarsai/indian-license-plates-with-labels
+      Unzip → D:\real_indian_plates
+
+ 3. Generate synthetic training images:
+      python generate_synthetic_data.py ^
+        --plates D:\synthetic_plates ^
+        --output synthetic_dataset ^
+        --count 4000
+
+ 4. Merge all datasets:
+      python prepare_indian_dataset.py ^
+        --new-dataset D:\real_indian_plates
+
+      python prepare_indian_dataset.py ^
+        --new-dataset synthetic_dataset
+
+ 5. Fine-tune model (GPU, ~2.5 hrs for 150 epochs on RTX 3050):
+      cd yolov5
+      python train.py ^
+        --img 640 ^
+        --batch 8 ^
+        --epochs 150 ^
+        --data ..\indian_data.yaml ^
+        --weights runs\train\exp2\weights\best.pt ^
+        --hyp ..\hyp_indian.yaml ^
+        --project runs\train ^
+        --name indian_finetune ^
+        --device 0 ^
+        --cache
+
+    Resume after crash:
+      python train.py --resume runs\train\indian_finetune6\weights\last.pt
+
+ 6. Validate (achieved 99.4% mAP@0.5):
+      python val.py ^
+        --weights runs\train\indian_finetune6\weights\best.pt ^
+        --data ..\indian_data.yaml ^
+        --img 640 ^
+        --device 0
+
+ 7. Run detection:
+      cd ..
+      python detect_and_recognize.py --source your_image.jpg
+
 --------------------------------------------------------------

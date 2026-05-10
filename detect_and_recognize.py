@@ -32,7 +32,11 @@ import numpy as np
 # --- Path setup ---------------------------------------------------------------
 BASE_DIR        = Path(__file__).parent.resolve()
 YOLOV5_DIR      = BASE_DIR / "yolov5"
-DEFAULT_WEIGHTS = YOLOV5_DIR / "runs" / "train" / "exp2" / "weights" / "best.pt"
+# After fine-tuning, the Indian model is used automatically.
+# Falls back to the original weights if fine-tuning hasn't been run yet.
+_INDIAN_WEIGHTS = YOLOV5_DIR / "runs" / "train" / "indian_finetune6" / "weights" / "best.pt"
+_ORIG_WEIGHTS   = YOLOV5_DIR / "runs" / "train" / "exp2"            / "weights" / "best.pt"
+DEFAULT_WEIGHTS = _INDIAN_WEIGHTS if _INDIAN_WEIGHTS.exists() else _ORIG_WEIGHTS
 OUTPUT_DIR      = BASE_DIR / "detection_output"
 
 
@@ -57,8 +61,12 @@ def parse_args():
                         help="Do not save detections to database")
     parser.add_argument("--no-ocr",  action="store_true",
                         help="Disable OCR (detection bounding boxes only)")
-    parser.add_argument("--show",    action="store_true", default=True,
-                        help="Display output window (default: True)")
+    parser.add_argument("--show",    action="store_true", default=False,
+                        help="Display output window. Auto-enabled for webcam/video.")
+    parser.add_argument("--min-chars", type=int, default=10,
+                        help="Minimum OCR text length to show/save (default: 10)")
+    parser.add_argument("--max-chars", type=int, default=13,
+                        help="Maximum OCR text length to show/save (default: 13)")
     parser.add_argument("--db",      type=str, default=str(BASE_DIR / "plates.db"),
                         help="Path to SQLite database file")
     return parser.parse_args()
@@ -112,25 +120,40 @@ def process_frame(frame_bgr: np.ndarray,
 
         crop       = frame_bgr[y1:y2, x1:x2]
         plate_text = ""
+        raw_text   = ""
         ocr_conf   = 0.0
 
         if not args.no_ocr and ocr_func is not None:
             ocr_result = ocr_func(crop)
             plate_text = ocr_result.get("text", "")
+            raw_text   = ocr_result.get("raw_text", "")
             ocr_conf   = ocr_result.get("confidence", 0.0)
 
+        # Use raw_text as fallback when validated text is empty
+        display_text = plate_text if plate_text else raw_text
+
+        # Strip IND prefix (safety net — ocr_pipeline should already do this)
+        if display_text.upper().startswith("IND") and len(display_text) > 3:
+            display_text = display_text[3:]
+
+        # Apply character length filter: only keep plates in [min_chars, max_chars]
+        min_chars = getattr(args, 'min_chars', 10)
+        max_chars = getattr(args, 'max_chars', 13)
+        if not (min_chars <= len(display_text) <= max_chars):
+            display_text = ""
+
         plates_found.append({
-            "plate":    plate_text,
+            "plate":    display_text,
             "det_conf": float(det_conf),
             "ocr_conf": ocr_conf,
             "bbox":     (x1, y1, x2, y2),
             "source":   source_name,
         })
 
-        if not args.no_db and db_save_func is not None and plate_text:
+        if not args.no_db and db_save_func is not None and display_text:
             db_save_func(
-                plate_number=plate_text,
-                raw_ocr_text=plate_text,
+                plate_number=display_text,
+                raw_ocr_text=raw_text or display_text,
                 image_path=source_name,
                 detection_confidence=float(det_conf),
                 ocr_confidence=ocr_conf,
@@ -138,14 +161,15 @@ def process_frame(frame_bgr: np.ndarray,
                 db_path=args.db,
             )
 
-        # Draw bounding box + label
-        color = (0, 220, 0)
+        # Green = validated Indian plate format, Orange = raw OCR (unvalidated)
+        validated = bool(plate_text)
+        color = (0, 220, 0) if validated else (0, 165, 255)
         lw    = max(2, int((frame_bgr.shape[0] + frame_bgr.shape[1]) / 600))
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, lw)
 
         label_det  = f"{det_conf:.0%}"
-        label_text = plate_text if plate_text else "No text"
-        label_ocr  = f"{ocr_conf:.0%}" if plate_text else ""
+        label_text = display_text if display_text else "No text"
+        label_ocr  = f"{ocr_conf:.0%}" if display_text else ""
         label_full = f" {label_text}  det:{label_det}"
         if label_ocr:
             label_full += f"  ocr:{label_ocr}"
@@ -305,6 +329,44 @@ class BestFrameTracker:
 
 
 # --- Source routing -----------------------------------------------------------
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+
+def run_folder(source, model, ocr_func, db_save_func, args):
+    """Process all images in a directory."""
+    folder  = Path(source)
+    images  = [p for p in sorted(folder.iterdir()) if p.suffix.lower() in IMAGE_EXTS]
+    if not images:
+        print(f"[ERROR] No images found in folder: {folder}")
+        return
+
+    print(f"[INFO] Processing {len(images)} image(s) from folder: {folder}")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    total_plates = 0
+    for img_path in images:
+        img = cv2.imread(str(img_path))
+        if img is None:
+            print(f"  [SKIP] Cannot read: {img_path.name}")
+            continue
+
+        annotated, plates = process_frame(
+            img, model, ocr_func, db_save_func, str(img_path), args
+        )
+        total_plates += len(plates)
+
+        for p in plates:
+            print(f"  [{img_path.name}] Plate: {p['plate'] or '-':<14} "
+                  f"Det: {p['det_conf']:.0%}  OCR: {p['ocr_conf']:.0%}")
+
+        if not args.no_save:
+            out = OUTPUT_DIR / f"{img_path.stem}_detected.jpg"
+            cv2.imwrite(str(out), annotated)
+
+    print(f"\n[INFO] Done. {total_plates} plate(s) detected across {len(images)} images.")
+    print(f"[INFO] Annotated outputs saved to: {OUTPUT_DIR}")
+
+
 def run_image(source, model, ocr_func, db_save_func, args):
     """Process a single image file."""
     img = cv2.imread(source)
@@ -324,9 +386,10 @@ def run_image(source, model, ocr_func, db_save_func, args):
         cv2.imwrite(str(out), annotated)
         print(f"[INFO] Saved: {out}")
 
-    cv2.imshow("Smart License Plate Detection", annotated)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if args.show:
+        cv2.imshow("Smart License Plate Detection", annotated)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 
 def run_video_or_webcam(source, model, ocr_func, db_save_func, args):
@@ -486,21 +549,27 @@ def main():
 
     print()
 
-    source  = args.source.strip()
-    is_file = Path(source).exists()
-    is_cam  = source.isdigit()
+    source   = args.source.strip()
+    src_path = Path(source)
+    is_cam   = source.isdigit()
+    is_video = src_path.is_file() and src_path.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv", ".webm"]
 
-    if is_file:
-        ext = Path(source).suffix.lower()
-        if ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"]:
+    # Auto-enable show window for live sources (webcam / video)
+    if is_cam or is_video:
+        args.show = True
+
+    if is_cam:
+        run_video_or_webcam(source, model, ocr_func, db_save_func, args)
+    elif src_path.is_dir():
+        run_folder(source, model, ocr_func, db_save_func, args)
+    elif src_path.is_file():
+        if is_video:
             run_video_or_webcam(source, model, ocr_func, db_save_func, args)
         else:
             run_image(source, model, ocr_func, db_save_func, args)
-    elif is_cam:
-        run_video_or_webcam(source, model, ocr_func, db_save_func, args)
     else:
         print(f"[ERROR] Source not found or not recognised: {source}")
-        print("  Use --source 0 for webcam, or provide a valid image/video path.")
+        print("  Use --source 0 for webcam, a valid image/video path, or a folder.")
         sys.exit(1)
 
 

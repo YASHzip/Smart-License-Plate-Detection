@@ -27,8 +27,8 @@ import numpy as np
 # ─── Constants ────────────────────────────────────────────────────────────────
 BASE_DIR     = Path(__file__).parent.resolve()
 YOLOV5_DIR   = BASE_DIR / "yolov5"
-DEFAULT_WEIGHTS = YOLOV5_DIR / "runs" / "train" / "exp2" / "weights" / "best.pt"
-DEFAULT_DATA    = BASE_DIR / "data.yaml"
+DEFAULT_WEIGHTS = YOLOV5_DIR / "runs" / "train" / "indian_finetune6" / "weights" / "best.pt"
+DEFAULT_DATA    = BASE_DIR / "indian_data.yaml"
 REPORT_PATH     = BASE_DIR / "evaluation_report.txt"
 EVAL_OUTPUT_DIR = BASE_DIR / "evaluation_output"
 
@@ -54,9 +54,19 @@ def parse_args():
 
 
 # ─── Read best metrics from training results.csv ──────────────────────────────
-def read_training_results():
-    """Parse the results.csv from exp2 to get best epoch metrics."""
-    results_csv = YOLOV5_DIR / "runs" / "train" / "exp2" / "results.csv"
+def read_training_results(weights_path=None):
+    """Parse the results.csv for the active training run to get best epoch metrics."""
+    # Derive the run directory from the weights path
+    if weights_path:
+        run_dir = Path(weights_path).parent.parent  # weights/best.pt -> run_dir
+    else:
+        run_dir = YOLOV5_DIR / "runs" / "train" / "indian_finetune6"
+
+    results_csv = run_dir / "results.csv"
+
+    # Fallback to exp2 if not found
+    if not results_csv.exists():
+        results_csv = YOLOV5_DIR / "runs" / "train" / "exp2" / "results.csv"
     if not results_csv.exists():
         return None
 
@@ -64,7 +74,6 @@ def read_training_results():
     with open(results_csv, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Strip whitespace from keys
             row = {k.strip(): v.strip() for k, v in row.items()}
             try:
                 map50 = float(row.get("metrics/mAP_0.5", 0))
@@ -77,6 +86,7 @@ def read_training_results():
                         "mAP_0.5:0.95": float(row.get("metrics/mAP_0.5:0.95", 0)),
                         "box_loss":   float(row.get("val/box_loss", 0)),
                         "obj_loss":   float(row.get("val/obj_loss", 0)),
+                        "results_file": str(results_csv),
                     }
             except (ValueError, KeyError):
                 continue
@@ -183,7 +193,7 @@ def save_sample_detections(args, n_samples=5):
 
 
 # ─── Write evaluation report ──────────────────────────────────────────────────
-def write_report(best_train_metrics, val_output):
+def write_report(best_train_metrics, val_output, args=None):
     """Save a formatted evaluation report to evaluation_report.txt."""
     sep   = "=" * 60
     now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -193,9 +203,9 @@ def write_report(best_train_metrics, val_output):
         "  SMART LICENSE PLATE DETECTION — EVALUATION REPORT",
         sep,
         f"  Generated : {now}",
-        f"  Model     : YOLOv5s (custom fine-tuned)",
-        f"  Weights   : runs/train/exp2/weights/best.pt",
-        f"  Dataset   : Kaggle Car Plate Detection",
+        f"  Model     : YOLOv5s (Indian Fine-Tuned — indian_finetune6)",
+        f"  Weights   : {args.weights if hasattr(args, 'weights') else 'indian_finetune6/weights/best.pt'}",
+        f"  Dataset   : Indian Multi-State Plate Dataset (3,546 train / 443 val)",
         f"  Classes   : 1 (license_plate)",
         sep,
         "",
@@ -207,7 +217,7 @@ def write_report(best_train_metrics, val_output):
         r  = best_train_metrics.get("recall", 0)
         f1 = 2 * p * r / (p + r + 1e-9)
         lines += [
-            f"  Epoch          : {best_train_metrics.get('epoch', 'N/A')} / 99",
+            f"  Epoch          : {best_train_metrics.get('epoch', 'N/A')} / 150",
             f"  Precision      : {p:.4f}  ({p*100:.1f}%)",
             f"  Recall         : {r:.4f}  ({r*100:.1f}%)",
             f"  F1 Score       : {f1:.4f}  ({f1*100:.1f}%)",
@@ -262,8 +272,8 @@ def main():
     print(f"  Conf    : {args.conf}   IoU: {args.iou}")
     print("=" * 60)
 
-    # Step 1: Read training results
-    best_train = read_training_results()
+    # Step 1: Read training results (derive run dir from weights path)
+    best_train = read_training_results(weights_path=args.weights)
 
     # Step 2: Run val.py on test split (unless skipped)
     val_out = None
@@ -276,7 +286,7 @@ def main():
     save_sample_detections(args, n_samples=args.samples)
 
     # Step 4: Write report
-    write_report(best_train, val_out)
+    write_report(best_train, val_out, args)
 
 
 if __name__ == "__main__":

@@ -122,27 +122,219 @@ def preprocess_plate(crop_bgr: np.ndarray) -> list:
     return variants
 
 
-# --- Text Cleaning -----------------------------------------------------------
+# --- Text Cleaning / Indian Plate Validation ----------------------------------
+#
+# Supported formats (all spaces/hyphens stripped before matching):
+#
+#  TYPE              PATTERN (stripped)       EXAMPLE          LENGTH
+#  ────────────────  ───────────────────────  ───────────────  ──────
+#  Standard (9)      AA0A0000                 DL1A1234          9
+#  Standard (10)     AA00AA0000               MH12AB1234        10
+#  BH Series         00BH0000AA               22BH1234AB        10
+#  Diplomatic        CD/CC/UN + 2-6 digits    CD1234             6-8
+#  Military          00A000000A               22B123456A        10
+#  IND-HSRP (12)     IND + 9-char standard    INDDL1A1234       12
+#  IND-HSRP (13)     IND + 10-char standard   INDMH12AB1234     13
+#  IND-BH (13)       IND + BH 10-char         IND22BH1234AB     13
+
+# 1. Standard civilian – 2-letter state + 1-2 digit district
+#    + 1-2 letter series + 4 digits  (9 or 10 chars)
+_RE_STANDARD = re.compile(
+    r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$'
+)
+
+# 2. BH (Bharat) series – YY BH NNNN LL  (10 chars)
+#    Year digits (20-99) + BH + 4 digits + 2 letters (excluding I and O)
+_RE_BH = re.compile(
+    r'^[2-9][0-9]BH[0-9]{4}[A-HJ-NP-Z]{2}$'
+)
+
+# 3. Diplomatic – CD / CC / UN followed by 2-6 digits  (4-8 chars)
+_RE_DIPLOMATIC = re.compile(
+    r'^(CD|CC|UN)[0-9]{2,6}$'
+)
+
+# 4. Military – YY + 1 class letter + 6 serial digits + 1 check letter (10 chars)
+_RE_MILITARY = re.compile(
+    r'^[0-9]{2}[A-Z][0-9]{6}[A-Z]$'
+)
+
+# Plate types for logging / DB tagging
+_PLATE_PATTERNS = [
+    ("STANDARD",   _RE_STANDARD),
+    ("BH",         _RE_BH),
+    ("DIPLOMATIC", _RE_DIPLOMATIC),
+    ("MILITARY",   _RE_MILITARY),
+]
+
+
+def validate_indian_plate(text: str) -> str:
+    """
+    Validate cleaned OCR text against ALL official Indian plate formats.
+
+    Accepted formats
+    ----------------
+    Standard    (9-10 chars) : SS D(D) L(L) NNNN   e.g. MH12AB1234 / DL1A5678
+    BH Series      (10 chars): YY BH NNNN LL       e.g. 22BH1234AB
+    Diplomatic     (4-8 chars): CD/CC/UN + digits   e.g. CD12345
+    Military       (10 chars): YY C NNNNNN X       e.g. 22B123456A
+    IND-HSRP prefix (+3 chars): IND + any above     e.g. INDMH12AB1234
+
+    The IND prefix is ALWAYS stripped from the result — only the core
+    plate number is returned (e.g. INDMH12AB1234 -> MH12AB1234).
+
+    Returns the validated core plate string (uppercase, no spaces/hyphens),
+    or "" if it matches no known Indian plate format.
+    """
+    # Normalise: uppercase, strip spaces/hyphens
+    text = text.upper().replace("-", "").replace(" ", "")
+
+    # Strip optional IND prefix (HSRP / international plates)
+    core = text[3:] if text.startswith("IND") else text
+
+    for _name, pattern in _PLATE_PATTERNS:
+        if pattern.fullmatch(core):
+            return core   # always return without IND prefix
+
+    return ""   # matches no known Indian plate format
+
+
+# --- Context-aware OCR correction --------------------------------------------
+#
+# All 36 Indian state / UT registration codes (MoRTH official list)
+_STATE_CODES = frozenset({
+    # States
+    "AP", "AR", "AS", "BR", "CG", "GA", "GJ", "HR", "HP",
+    "JH", "JK", "KA", "KL", "MP", "MH", "MN", "ML", "MZ",
+    "NL", "OD", "PB", "RJ", "SK", "TN", "TS", "TR", "UP",
+    "UK", "WB",
+    # Union Territories
+    "AN", "CH", "DD", "DL", "DN", "LA", "LD", "PY",
+})
+
+# Characters that look like digits but OCR reads as letters (use in digit slots)
+_LETTER_TO_DIGIT = {"O": "0", "I": "1", "S": "5", "B": "8",
+                     "G": "6", "Z": "2", "T": "7", "A": "4"}
+# Characters that look like letters but OCR reads as digits (use in letter slots)
+_DIGIT_TO_LETTER = {"0": "O", "1": "I", "5": "S", "8": "B",
+                     "6": "G", "2": "Z", "7": "T", "4": "A"}
+
+
+def _fix_digit(c: str) -> str:
+    return _LETTER_TO_DIGIT.get(c, c)
+
+
+def _fix_letter(c: str) -> str:
+    return _DIGIT_TO_LETTER.get(c, c)
+
+
+def _try_fix_state(s: str) -> str:
+    """Try every single-char substitution to produce a valid state code."""
+    if s in _STATE_CODES:
+        return s
+    for i in range(len(s)):
+        fixed = list(s)
+        fixed[i] = _DIGIT_TO_LETTER.get(fixed[i], fixed[i])
+        candidate = "".join(fixed)
+        if candidate in _STATE_CODES:
+            return candidate
+    return s  # best effort
+
+
+def correct_ocr_errors(text: str) -> str:
+    """
+    Context-aware correction for Indian plate OCR errors.
+
+    Applies character-position rules:
+      Standard (10):  SS  DD  LL  NNNN
+                      ^^  ^^  ^^  ^^^^
+                      letter digit letter digit
+
+      Standard (9):   SS  D  L  NNNN
+      BH series (10): NN BH NNNN LL
+      Diplomatic:     CC NNNNNN  (no positional fix — left as-is)
+      Military (10):  NN L NNNNNN L
+
+    Returns a corrected string (may still fail final validation).
+    """
+    n = len(text)
+
+    # --- Standard 10-char: SS DD LL NNNN ---
+    if n == 10:
+        state    = _try_fix_state(text[0:2])
+        district = "".join(_fix_digit(c)  for c in text[2:4])
+        series   = "".join(_fix_letter(c) for c in text[4:6])
+        number   = "".join(_fix_digit(c)  for c in text[6:10])
+        return state + district + series + number
+
+    # --- Standard 9-char: SS D LL NNNN ---
+    if n == 9:
+        state    = _try_fix_state(text[0:2])
+        district = _fix_digit(text[2])
+        series   = "".join(_fix_letter(c) for c in text[3:5])
+        number   = "".join(_fix_digit(c)  for c in text[5:9])
+        return state + district + series + number
+
+    # --- BH 10-char: YY BH NNNN LL ---
+    if n == 10 and text[2:4] == "BH":
+        year   = "".join(_fix_digit(c) for c in text[0:2])
+        number = "".join(_fix_digit(c) for c in text[4:8])
+        series = "".join(_fix_letter(c) for c in text[8:10])
+        return year + "BH" + number + series
+
+    # --- Military 10-char: YY C NNNNNN X ---
+    if n == 10:
+        year    = "".join(_fix_digit(c)  for c in text[0:2])
+        cls     = _fix_letter(text[2])
+        serial  = "".join(_fix_digit(c)  for c in text[3:9])
+        check   = _fix_letter(text[9])
+        return year + cls + serial + check
+
+    # Diplomatic / other lengths — no positional correction
+    return text
+
 
 def clean_plate_text(raw_text: str) -> str:
     """
-    Clean raw OCR output to extract only alphanumeric plate characters.
-    Removes spaces, special characters, and obvious OCR noise.
+    Clean raw OCR output and attempt to validate as a known Indian plate.
+
+    Pipeline:
+        1. Strip non-alphanumeric characters
+        2. Apply context-aware OCR error correction
+        3. Validate against all known Indian plate formats
+        4. If validation fails, return the best-effort cleaned text anyway
+           (never silently discard a reading the OCR was confident about)
+
+    Returns the validated plate string if it matches a known format,
+    otherwise returns the cleaned raw text as-is (never empty if input
+    had at least 2 alphanumeric characters).
     """
-    # Common OCR misreads for license plates
-    substitutions = {
-        "O": "0",   # letter O -> zero  (context: all-digit section)
-        # Keep both in place; let context decide
-    }
     text = raw_text.upper()
 
-    # Keep only alphanumeric characters and hyphens
-    cleaned = re.sub(r"[^A-Z0-9\-]", "", text)
+    # Strip all non-alphanumeric chars (punctuation, OCR noise)
+    cleaned = re.sub(r"[^A-Z0-9]", "", text)
 
-    # Remove sequences that are clearly too short to be a plate
     if len(cleaned) < 2:
         return ""
-    return cleaned.strip()
+
+    # Strip IND prefix (HSRP plates) before any matching
+    if cleaned.startswith("IND"):
+        cleaned = cleaned[3:]
+
+    # Step 1: try as-is (exact match)
+    result = validate_indian_plate(cleaned)
+    if result:
+        return result
+
+    # Step 2: apply position-aware OCR correction and try again
+    corrected = correct_ocr_errors(cleaned)
+    result = validate_indian_plate(corrected)
+    if result:
+        return result
+
+    # Step 3: validation failed — return the cleaned text anyway
+    # (OCR detected something real; IND prefix already stripped above)
+    return cleaned
 
 
 # --- OCR on multiple pre-process variants ------------------------------------

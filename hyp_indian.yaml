@@ -1,0 +1,51 @@
+# hyp_indian.yaml - YOLOv5 hyperparameters tuned for Indian road conditions
+#
+# Based on hyp.scratch-low.yaml with all required keys present.
+# Optimized for 150-epoch smooth fine-tuning on Indian plates:
+#   - Harsh lighting (glare, direct sun, night / headlights)
+#   - Yellow / green / white plates with varying contrast
+#   - Tilted plates on motorcycles and autos
+#   - Partial occlusion from mud, stickers, damage
+#
+# Usage:
+#   python train.py --hyp ../hyp_indian.yaml --epochs 150 ...
+
+# -- Learning rate (smooth cosine decay over 150 epochs) ----------------------
+lr0:          0.01    # initial learning rate (SGD=1E-2)
+lrf:          0.001   # final LR = lr0 * lrf  -- gentle cosine decay
+momentum:     0.937
+weight_decay: 0.0005
+warmup_epochs:    5.0 # extended warmup for smoother early-epoch stability
+warmup_momentum:  0.8
+warmup_bias_lr:   0.1
+
+# -- Loss weights --------------------------------------------------------------
+box:    0.05    # box loss gain
+cls:    0.5     # cls loss gain
+cls_pw: 1.0     # cls BCELoss positive_weight
+obj:    1.0     # obj loss gain (scale with pixels)
+obj_pw: 1.0     # obj BCELoss positive_weight
+iou_t:  0.20    # IoU training threshold
+anchor_t: 4.0   # anchor-multiple threshold
+fl_gamma: 0.0   # focal loss gamma (required by YOLOv5 loss.py; 0 = disabled)
+
+# -- Colour / brightness augmentation (increased for Indian plates) ------------
+# Indian plates: white-on-black (private), yellow-on-black (commercial),
+# green-on-white (EV), blue-on-white (diplomatic)
+hsv_h: 0.020   # hue shift            (default 0.015) -- for yellow/green plates
+hsv_s: 0.800   # saturation shift     (default 0.700) -- for high-sun glare
+hsv_v: 0.500   # value shift          (default 0.400) -- for night / headlights
+
+# -- Geometric augmentation (increased for bike / auto plates) ----------------
+degrees:     10.0    # rotation +/- deg     (default 0.0)  -- tilted bike plates
+translate:    0.1    # translation +/- fraction
+scale:        0.5    # scale +/- gain
+shear:        5.0    # shear +/- deg        (default 0.0)  -- angled camera views
+perspective:  0.0005 # perspective +/- fraction
+
+# -- Flip / mosaic -------------------------------------------------------------
+flipud:     0.0   # vertical flip probability (plates never appear upside-down)
+fliplr:     0.5   # horizontal flip probability
+mosaic:     1.0   # mosaic augmentation probability (4-image mosaic, keep ON)
+mixup:      0.1   # MixUp probability -- helps with partial occlusion
+copy_paste: 0.0   # segment copy-paste (not used for detection)
